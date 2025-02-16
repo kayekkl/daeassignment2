@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>聚餐分帳計算器</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f9f9f9;
+        }
+        .input-group {
+            margin-bottom: 1rem;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+        }
+        .currency {
+            font-weight: bold;
+            color: goldenrod;
+        }
+    </style>
+</head>
+<body>
+
+<h1>聚餐分帳計算器</h1>
+<form id="bill-form">
+    <div class="input-group">
+        <label>日期:
+            <input type="date" id="date" required />
+        </label>
+        <label>餐廳名稱:
+            <input type="text" id="location" required />
+        </label>
+        <label>小費百分比:
+            <input type="number" id="tipPercentage" min="0" max="100" required />
+        </label>
+    </div>
+
+    <h2>收費項目</h2>
+    <div id="items-container"></div>
+    <button type="button" id="add-item">新增餐點</button>
+    <input type="submit" value="計算分帳" />
+</form>
+
+<div id="result-container" style="display:none;"></div>
+
+<script>
+    // TypeScript 代碼轉換為 JavaScript
+    // 輸入 Type
+    function splitBill(input) {
+        const date = formatDate(input.date);
+        const location = input.location;
+        const subTotal = calculateSubTotal(input.items);
+        const tip = calculateTip(subTotal, input.tipPercentage);
+        const totalAmount = subTotal + tip;
+
+        let items = calculateItems(input.items, input.tipPercentage);
+        adjustAmounts(totalAmount, items);
+
+        return {
+            date,
+            location,
+            subTotal,
+            tip,
+            totalAmount,
+            items,
+        };
+    }
+
+    function formatDate(date) {
+        const parts = date.split("-");
+        let year = parseInt(parts[0]);
+        let month = parseInt(parts[1]);
+        let day = parseInt(parts[2]);
+        return `${year}年${month}月${day}日`;
+    }
+
+    function calculateSubTotal(items) {
+        return items.reduce((total, item) => total + item.price, 0);
+    }
+
+    function calculateTip(subTotal, tipPercentage) {
+        const tipAmount = subTotal * (tipPercentage / 100);
+        return Math.round(tipAmount * 10) / 10;
+    }
+
+    function scanPersons(items) {
+        const persons = new Set();
+        items.forEach((item) => {
+            if (!item.isShared && item.person) {
+                persons.add(item.person);
+            }
+        });
+        return Array.from(persons);
+    }
+
+    function calculateItems(items, tipPercentage) {
+        const names = scanPersons(items);
+        const persons = names.length;
+
+        return names.map((name) => ({
+            name,
+            amount: calculatePersonAmount({
+                items,
+                tipPercentage,
+                name,
+                persons,
+            }),
+        }));
+    }
+
+    function calculatePersonAmount(input) {
+        let personalAmount = 0;
+        let sharedAmount = 0;
+
+        input.items.forEach((item) => {
+            if (item.isShared) {
+                sharedAmount += item.price / input.persons;
+            } else if (item.person === input.name) {
+                personalAmount += item.price;
+            }
+        });
+
+        const totalAmount = personalAmount + sharedAmount;
+        const individualTip = (totalAmount * input.tipPercentage) / 100;
+
+        return parseFloat((totalAmount + individualTip).toFixed(1));
+    }
+
+    function adjustAmounts(totalAmount, items) {
+        const currentTotal = items.reduce((sum, item) => sum + item.amount, 0);
+        const difference = totalAmount - currentTotal;
+
+        if (Math.abs(difference) < 0.01) return;
+
+        const roundedDifference = parseFloat(difference.toFixed(1));
+        const adjustmentPerPerson = roundedDifference / items.length;
+
+        items.forEach((item) => {
+            item.amount = parseFloat((item.amount + adjustmentPerPerson).toFixed(1));
+        });
+
+        const finalTotal = items.reduce((sum, item) => sum + item.amount, 0);
+        const finalDifference = totalAmount - finalTotal;
+
+        if (finalDifference !== 0) {
+            items[0].amount = parseFloat((items[0].amount + finalDifference).toFixed(1));
+        }
+    }
+
+    document.getElementById('add-item').addEventListener('click', () => {
+        const itemHTML = `
+            <div class="input-group">
+                <label>餐點名稱:
+                    <input type="text" class="item-name" required />
+                </label>
+                <label>價格（元）:
+                    <input type="number" class="item-price" min="0" step="0.1" required />
+                </label>
+                <label>是否均分:
+                    <input type="checkbox" class="is-shared" checked />
+                </label>
+                <label>付款人:
+                    <input type="text" class="payer" placeholder="付款人名稱（僅對不均分項目有效）" />
+                </label>
+            </div>`;
+        document.getElementById('items-container').insertAdjacentHTML('beforeend', itemHTML);
+    });
+
+    document.getElementById('bill-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+
+        const date = document.getElementById('date').value;
+        const location = document.getElementById('location').value;
+        const tipPercentage = parseFloat(document.getElementById('tipPercentage').value);
+
+        const items = Array.from(document.querySelectorAll('.item-name')).map((item, index) => {
+            const price = parseFloat(document.querySelectorAll('.item-price')[index].value);
+            const isShared = document.querySelectorAll('.is-shared')[index].checked;
+            const person = isShared ? '' : document.querySelectorAll('.payer')[index].value;
+
+            return isShared ? { name: item.value, price, isShared: true } : { name: item.value, price, isShared: false, person };
+        });
+
+        const billInput = { date, location, tipPercentage, items };
+        const billOutput = splitBill(billInput);
+        displayResults(billOutput);
+    });
+
+    function displayResults(output) {
+        const resultContainer = document.getElementById('result-container');
+        resultContainer.innerHTML = `
+            <h2>分帳結果</h2>
+            <p>日期：${output.date}</p>
+            <p>地點：${output.location}</p>
+            <p>小計：<span class="currency">$${output.subTotal.toFixed(1)}</span></p>
+            <p>小費：<span class="currency">$${output.tip.toFixed(1)}</span></p>
+            <p>總金額：<span class="currency">$${output.totalAmount.toFixed(1)}</span></p>
+            <h3>每人最終需支付金額</h3>
+            <ul>${output.items.map(item => `<li>${item.name}: <span class="currency">$${item.amount.toFixed(1)}</span></li>`).join('')}</ul>
+        `;
+        resultContainer.style.display = 'block';
+    }
+</script>
+</body>
+</html>
